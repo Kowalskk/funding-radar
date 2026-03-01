@@ -31,10 +31,17 @@ class Settings(BaseSettings):
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
-    def parse_origins(cls, v: str | list[str]) -> list[str]:
+    def parse_origins(cls, v):
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
-        return v
+            # Handle both JSON array and comma-separated strings
+            v = v.strip()
+            if v.startswith("["):
+                import json
+                return json.loads(v)
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        if isinstance(v, list):
+            return v
+        return [str(v)]
 
     # ── PostgreSQL / TimescaleDB ──────────────────────────
     database_url: str = Field(
@@ -67,12 +74,10 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = None
 
     # ── DEX API Endpoints ─────────────────────────────────
-    dydx_api_url: str = "https://api.dydx.exchange"
-    dydx_ws_url: str = "wss://api.dydx.exchange/v3/ws"
     hyperliquid_api_url: str = "https://api.hyperliquid.xyz"
     hyperliquid_ws_url: str = "wss://api.hyperliquid.xyz/ws"
-    gmx_api_url: str = "https://stats.gmx.io/api"
-    drift_api_url: str = "https://drift-historical-data.s3.eu-west-1.amazonaws.com"
+    aster_api_url: str = "https://fapi.asterdex.com"
+    aster_ws_url: str = "wss://fstream.asterdex.com"
 
     # ── Scheduler ─────────────────────────────────────────
     scheduler_funding_rate_interval_seconds: int = 10

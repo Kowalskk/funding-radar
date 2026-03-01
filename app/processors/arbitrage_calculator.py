@@ -139,20 +139,20 @@ class ArbitrageCalculator:
                 else 0.0
             )
 
-            # ── Net APR — maker ───────────────────────────────────────────────
-            # Fee cost annualised: paid once at entry + once at exit per leg
-            # Annualisation proxy: treat as if positions are rolled every year
-            # Cost (%) = (maker_long + maker_short) × 2 (entry+exit each leg)
+            # ── Net APR — fees are one-time costs (entry + exit), NOT recurring ──
+            # Each leg incurs a fee on entry and on exit.
+            # Round-trip cost per leg = fee_rate × 2 (open + close)
+            # Total round-trip cost across both legs:
             maker_fee_pct = (ld.maker_fee + sd.maker_fee) * 2        # total round trip %
             taker_fee_pct = (ld.taker_fee + sd.taker_fee) * 2        # total round trip %
 
-            # Annualise the round-trip fee as an equivalent APR
-            # Standard approach: fee_apr = fee_pct * 365 * 3  (8h period = 3×/day)
-            maker_fee_apr = maker_fee_pct * 3 * 365
-            taker_fee_apr = taker_fee_pct * 3 * 365
-
-            net_apr_maker = funding_delta_apr - maker_fee_apr
-            net_apr_taker = funding_delta_apr - taker_fee_apr
+            # Net APR = gross funding spread APR minus one-time fee cost.
+            # The fee is a flat drag, not annualised — it's paid once regardless
+            # of how long you hold. We subtract it as-is from the gross APR so
+            # the resulting number tells the user "this is your APR after entry
+            # and exit fees are accounted for over one full year of holding".
+            net_apr_maker = funding_delta_apr - maker_fee_pct
+            net_apr_taker = funding_delta_apr - taker_fee_pct
 
             # ── Break-even ────────────────────────────────────────────────────
             # Total one-way entry cost (open both legs once)

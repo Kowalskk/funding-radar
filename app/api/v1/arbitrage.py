@@ -5,7 +5,6 @@ Routes:
   GET /opportunities — ranked list read from Redis "arbitrage:current"
 """
 
-from __future__ import annotations
 
 import json
 from typing import Any

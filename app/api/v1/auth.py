@@ -9,7 +9,6 @@ Routes:
   POST /auth/checkout  — Stripe checkout session for Pro upgrade
 """
 
-from __future__ import annotations
 
 from typing import Annotated, Any
 

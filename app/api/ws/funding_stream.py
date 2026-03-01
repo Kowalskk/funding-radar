@@ -26,7 +26,6 @@ Authentication:
   Expired token → 4001 close code (expired, re-auth required).
 """
 
-from __future__ import annotations
 
 import json
 import logging

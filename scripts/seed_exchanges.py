@@ -105,8 +105,13 @@ async def main() -> None:
                 tok = await session.scalar(select(Token).where(Token.symbol == sym))
                 if tok is None:
                     continue
+                # Hyperliquid uses bare symbol "BTC"; Aster uses "BTCUSDT"
+                if ex_slug == "hyperliquid":
+                    ex_symbol = sym
+                else:
+                    ex_symbol = f"{sym}USDT"
                 stmt = insert(ExchangeToken).values(
-                    exchange_id=ex.id, token_id=tok.id, exchange_symbol=f"{sym}USDT"
+                    exchange_id=ex.id, token_id=tok.id, exchange_symbol=ex_symbol
                 ).on_conflict_do_nothing()
                 await session.execute(stmt)
 

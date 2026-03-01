@@ -8,7 +8,8 @@ Provides:
   redis_rate_limit()    — Depends-compatible rate limiter using TokenBucket
 """
 
-from __future__ import annotations
+# NOTE: Do NOT use `from __future__ import annotations` here.
+# It breaks FastAPI's dependency injection for Request, Depends, etc.
 
 from typing import Annotated
 

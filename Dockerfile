@@ -43,6 +43,11 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.t
 
 # Copy application source
 COPY app/ ./app/
+COPY alembic/ ./alembic/
+COPY alembic.ini .
+COPY scripts/ ./scripts/
+COPY tests/ ./tests/
+COPY pytest.ini .
 
 # Set ownership
 RUN chown -R appuser:appgroup /app

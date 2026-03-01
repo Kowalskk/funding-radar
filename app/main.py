@@ -48,7 +48,6 @@ def _configure_logging(settings: Settings) -> None:
             structlog.contextvars.merge_contextvars,
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.stdlib.add_log_level,
-            structlog.stdlib.add_logger_name,
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.JSONRenderer(),
@@ -58,7 +57,6 @@ def _configure_logging(settings: Settings) -> None:
             structlog.contextvars.merge_contextvars,
             structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S"),
             structlog.stdlib.add_log_level,
-            structlog.stdlib.add_logger_name,
             structlog.dev.ConsoleRenderer(),
         ]
 
@@ -257,6 +255,21 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # ── Global exception handler (dev) ─────────────────────────
+    if settings.app_debug:
+        import traceback as _tb
+
+        from fastapi.responses import JSONResponse
+
+        @application.exception_handler(Exception)
+        async def _debug_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+            tb = _tb.format_exception(type(exc), exc, exc.__traceback__)
+            logging.getLogger("uvicorn.error").error("Unhandled: %s\n%s", exc, "".join(tb))
+            return JSONResponse(
+                status_code=500,
+                content={"detail": str(exc), "traceback": tb},
+            )
 
     # ── API v1 router ──────────────────────────────────────
     from app.api.v1.router import api_v1_router

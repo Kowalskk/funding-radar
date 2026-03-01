@@ -1,0 +1,136 @@
+diff --git a/.env.example b/.env.example
+index 0989b13..822a7a9 100644
+--- a/.env.example
++++ b/.env.example
+@@ -49,24 +49,18 @@ TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+ TELEGRAM_CHAT_ID=-1001234567890     # channel/group for alerts
+ 
+ # ── DEX Integrations ──────────────────────────────────────
+-# dYdX
+-DYDX_API_URL=https://api.dydx.exchange
+-DYDX_WS_URL=wss://api.dydx.exchange/v3/ws
+-
+ # Hyperliquid
+ HYPERLIQUID_API_URL=https://api.hyperliquid.xyz
+ HYPERLIQUID_WS_URL=wss://api.hyperliquid.xyz/ws
+ 
+-# GMX (Arbitrum)
+-GMX_API_URL=https://stats.gmx.io/api
+-
+-# Drift (Solana)
+-DRIFT_API_URL=https://drift-historical-data.s3.eu-west-1.amazonaws.com
++# Aster
++ASTER_API_URL=https://fapi.asterdex.com
++ASTER_WS_URL=wss://fstream.asterdex.com
+ 
+ # ── Scheduler ─────────────────────────────────────────────
+ SCHEDULER_FUNDING_RATE_INTERVAL_SECONDS=10
+ SCHEDULER_CACHE_CLEANUP_INTERVAL_MINUTES=60
+ 
+ # ── Logging ───────────────────────────────────────────────
+-LOG_LEVEL=INFO              # DEBUG | INFO | WARNING | ERROR | CRITICAL
+-LOG_FORMAT=json             # json | text
++LOG_LEVEL=DEBUG              # DEBUG | INFO | WARNING | ERROR | CRITICAL
++LOG_FORMAT=text              # json | text (use text for local dev)
+diff --git a/Dockerfile b/Dockerfile
+index b8318a1..b5c3dbe 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -43,6 +43,11 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.t
+ 
+ # Copy application source
+ COPY app/ ./app/
++COPY alembic/ ./alembic/
++COPY alembic.ini .
++COPY scripts/ ./scripts/
++COPY tests/ ./tests/
++COPY pytest.ini .
+ 
+ # Set ownership
+ RUN chown -R appuser:appgroup /app
+diff --git a/app/config.py b/app/config.py
+index 0246071..2d5b5f6 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -67,12 +67,10 @@ class Settings(BaseSettings):
+     telegram_chat_id: str | None = None
+ 
+     # ── DEX API Endpoints ─────────────────────────────────
+-    dydx_api_url: str = "https://api.dydx.exchange"
+-    dydx_ws_url: str = "wss://api.dydx.exchange/v3/ws"
+     hyperliquid_api_url: str = "https://api.hyperliquid.xyz"
+     hyperliquid_ws_url: str = "wss://api.hyperliquid.xyz/ws"
+-    gmx_api_url: str = "https://stats.gmx.io/api"
+-    drift_api_url: str = "https://drift-historical-data.s3.eu-west-1.amazonaws.com"
++    aster_api_url: str = "https://fapi.asterdex.com"
++    aster_ws_url: str = "wss://fstream.asterdex.com"
+ 
+     # ── Scheduler ─────────────────────────────────────────
+     scheduler_funding_rate_interval_seconds: int = 10
+diff --git a/app/processors/arbitrage_calculator.py b/app/processors/arbitrage_calculator.py
+index b503554..e3eed36 100644
+--- a/app/processors/arbitrage_calculator.py
++++ b/app/processors/arbitrage_calculator.py
+@@ -139,20 +139,20 @@ class ArbitrageCalculator:
+                 else 0.0
+             )
+ 
+-            # ── Net APR — maker ───────────────────────────────────────────────
+-            # Fee cost annualised: paid once at entry + once at exit per leg
+-            # Annualisation proxy: treat as if positions are rolled every year
+-            # Cost (%) = (maker_long + maker_short) × 2 (entry+exit each leg)
++            # ── Net APR — fees are one-time costs (entry + exit), NOT recurring ──
++            # Each leg incurs a fee on entry and on exit.
++            # Round-trip cost per leg = fee_rate × 2 (open + close)
++            # Total round-trip cost across both legs:
+             maker_fee_pct = (ld.maker_fee + sd.maker_fee) * 2        # total round trip %
+             taker_fee_pct = (ld.taker_fee + sd.taker_fee) * 2        # total round trip %
+ 
+-            # Annualise the round-trip fee as an equivalent APR
+-            # Standard approach: fee_apr = fee_pct * 365 * 3  (8h period = 3×/day)
+-            maker_fee_apr = maker_fee_pct * 3 * 365
+-            taker_fee_apr = taker_fee_pct * 3 * 365
+-
+-            net_apr_maker = funding_delta_apr - maker_fee_apr
+-            net_apr_taker = funding_delta_apr - taker_fee_apr
++            # Net APR = gross funding spread APR minus one-time fee cost.
++            # The fee is a flat drag, not annualised — it's paid once regardless
++            # of how long you hold. We subtract it as-is from the gross APR so
++            # the resulting number tells the user "this is your APR after entry
++            # and exit fees are accounted for over one full year of holding".
++            net_apr_maker = funding_delta_apr - maker_fee_pct
++            net_apr_taker = funding_delta_apr - taker_fee_pct
+ 
+             # ── Break-even ────────────────────────────────────────────────────
+             # Total one-way entry cost (open both legs once)
+diff --git a/requirements.txt b/requirements.txt
+index 5bafaad..a5ef800 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -8,7 +8,6 @@ httptools==0.6.4
+ asyncpg==0.30.0
+ sqlalchemy[asyncio]==2.0.36
+ alembic==1.14.0
+-psycopg2-binary==2.9.10
+ 
+ # Redis
+ redis[hiredis]==5.2.1
+diff --git a/scripts/seed_exchanges.py b/scripts/seed_exchanges.py
+index 26d3296..fd73648 100644
+--- a/scripts/seed_exchanges.py
++++ b/scripts/seed_exchanges.py
+@@ -105,8 +105,13 @@ async def main() -> None:
+                 tok = await session.scalar(select(Token).where(Token.symbol == sym))
+                 if tok is None:
+                     continue
++                # Hyperliquid uses bare symbol "BTC"; Aster uses "BTCUSDT"
++                if ex_slug == "hyperliquid":
++                    ex_symbol = sym
++                else:
++                    ex_symbol = f"{sym}USDT"
+                 stmt = insert(ExchangeToken).values(
+-                    exchange_id=ex.id, token_id=tok.id, exchange_symbol=f"{sym}USDT"
++                    exchange_id=ex.id, token_id=tok.id, exchange_symbol=ex_symbol
+                 ).on_conflict_do_nothing()
+                 await session.execute(stmt)
+ 

@@ -5,7 +5,6 @@ Routes:
   POST /webhooks/stripe — receives and verifies Stripe events
 """
 
-from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
 
@@ -32,9 +31,9 @@ async def stripe_webhook(
     payload = await request.body()
 
     try:
-        from stripe import WebhookSignatureVerificationError
+        from stripe import SignatureVerificationError
         event_type = await handle_stripe_webhook(payload, stripe_signature)
-    except WebhookSignatureVerificationError:
+    except SignatureVerificationError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid Stripe signature.",

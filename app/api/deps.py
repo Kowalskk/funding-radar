@@ -8,7 +8,10 @@ Provides:
   - rate_limit              → RateLimiter singleton backed by Redis token-bucket
 """
 
-from __future__ import annotations
+# NOTE: Do NOT use `from __future__ import annotations` here.
+# It turns annotations into strings and breaks FastAPI's dependency
+# injection for Request, Depends, etc.
+
 
 from typing import Annotated
 

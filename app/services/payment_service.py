@@ -13,7 +13,7 @@ import logging
 from typing import Any
 
 import stripe
-from stripe import WebhookSignatureVerificationError
+from stripe import SignatureVerificationError
 
 from app.config import get_settings
 
@@ -85,7 +85,7 @@ async def handle_stripe_webhook(
 
     try:
         event = stripe.Webhook.construct_event(payload, stripe_signature, secret)
-    except WebhookSignatureVerificationError as exc:
+    except SignatureVerificationError as exc:
         logger.warning("Stripe webhook signature verification failed: %s", exc)
         raise
 

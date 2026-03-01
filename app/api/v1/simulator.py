@@ -5,7 +5,6 @@ Routes:
   POST /calculate — full simulation of a long/short carry trade
 """
 
-from __future__ import annotations
 
 import json
 from typing import Any, Literal

@@ -8,7 +8,6 @@ httptools==0.6.4
 asyncpg==0.30.0
 sqlalchemy[asyncio]==2.0.36
 alembic==1.14.0
-psycopg2-binary==2.9.10
 
 # Redis
 redis[hiredis]==5.2.1
@@ -23,6 +22,7 @@ apscheduler==3.10.4
 # Config & validation
 pydantic==2.10.3
 pydantic-settings==2.7.0
+email-validator==2.2.0
 
 # Notifications
 python-telegram-bot==21.10
