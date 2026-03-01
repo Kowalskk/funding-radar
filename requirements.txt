@@ -1,0 +1,46 @@
+# Web framework
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+uvloop==0.21.0
+httptools==0.6.4
+
+# Database
+asyncpg==0.30.0
+sqlalchemy[asyncio]==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.10
+
+# Redis
+redis[hiredis]==5.2.1
+
+# HTTP / WebSockets
+aiohttp==3.11.10
+websockets==14.1
+
+# Task scheduling
+apscheduler==3.10.4
+
+# Config & validation
+pydantic==2.10.3
+pydantic-settings==2.7.0
+
+# Notifications
+python-telegram-bot==21.10
+
+# Auth & security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Payments
+stripe==11.3.0
+
+# Utilities
+python-dotenv==1.0.1
+orjson==3.10.12
+structlog==24.4.0
+tenacity==9.0.0
+
+# Testing (dev)
+pytest==8.3.4
+pytest-asyncio==0.25.0
+httpx==0.28.1
