@@ -100,7 +100,7 @@ class AsterCollector(BaseCollector):
     # ── Startup override — fetch universe first ────────────────────────────────
 
     async def start(self) -> None:
-        """Fetch exchange universe before starting collection tasks."""
+        """Fetch exchange universe and ticker cache before starting collection tasks."""
         import aiohttp as _aiohttp
         import json as _json
         # Create the HTTP session early so _load_exchange_info can use _fetch_rest
@@ -111,10 +111,44 @@ class AsterCollector(BaseCollector):
                 connector=_aiohttp.TCPConnector(limit=10, ttl_dns_cache=300),
             )
         await self._load_exchange_info()
+        # Pre-load ticker + premiumIndex so the very first normalize call has data
+        await self._preload_ticker_cache()
         # super().start() will not recreate session if already open
         await super().start()
 
     # ── Exchange info (once at startup) ───────────────────────────────────────
+
+    async def _preload_ticker_cache(self) -> None:
+        """Pre-load ticker/24hr and premiumIndex before the first REST poll."""
+        try:
+            ticker_list = await self._fetch_rest(
+                f"{REST_BASE}/fapi/v1/ticker/24hr", method="GET"
+            )
+            self._ticker_cache = {t["symbol"]: t for t in ticker_list}
+            self._log.info(
+                "Pre-loaded ticker cache: %d symbols.", len(self._ticker_cache)
+            )
+        except Exception as exc:
+            self._log.warning("Failed to pre-load ticker cache: %s", exc)
+
+        try:
+            premium_list = await self._fetch_rest(
+                f"{REST_BASE}/fapi/v1/premiumIndex", method="GET"
+            )
+            for item in premium_list:
+                sym = item.get("symbol", "")
+                if sym and sym not in self._ws_snapshots:
+                    self._ws_snapshots[sym] = {
+                        "mark_price": float(item.get("markPrice") or 0),
+                        "index_price": float(item.get("indexPrice") or 0),
+                        "funding_rate": float(item.get("lastFundingRate") or 0),
+                        "next_funding_time": item.get("nextFundingTime"),
+                    }
+            self._log.info(
+                "Pre-loaded premiumIndex: %d symbols.", len(self._ws_snapshots)
+            )
+        except Exception as exc:
+            self._log.warning("Failed to pre-load premiumIndex: %s", exc)
 
     async def _load_exchange_info(self) -> None:
         """Fetch active perpetual symbols from /fapi/v1/exchangeInfo."""
@@ -313,17 +347,25 @@ class AsterCollector(BaseCollector):
 
                 # Pull volume / OI from ticker cache
                 ticker = self._ticker_cache.get(symbol, {})
-                # openInterest is in base-asset units → convert to USD
-                oi_raw = float(ticker.get("openInterest") or 0)
-                open_interest_usd = oi_raw * mark_price if mark_price > 0 else 0.0
-                # quoteVolume is already in USD (USDT notional)
+                # Aster's ticker/24hr does NOT include openInterest — use quoteVolume
+                # (USD 24h notional) as the liquidity/size proxy instead.
                 volume_24h_usd = float(ticker.get("quoteVolume") or 0)
+                # Approximate OI: use volume as surrogate (both reflect market depth)
+                # A proper OI endpoint (/fapi/v1/openInterest?symbol=X) requires one
+                # call per symbol; we'll use volume_24h_usd as OI proxy here.
+                open_interest_usd = volume_24h_usd
 
                 # ── Filters ───────────────────────────────────────────────────
-                if open_interest_usd < self._config.min_open_interest_usd:
-                    continue
-                if volume_24h_usd <= 0:
-                    continue
+                # Only filter if we have confirmed data. When ticker cache is
+                # still warming up, volume_24h_usd will be 0 (ticker not yet
+                # fetched). We allow those through so the normalizer can see
+                # cross-exchange matches - OI/volume will be filled on next poll.
+                ticker_loaded = bool(self._ticker_cache)
+                if ticker_loaded:
+                    if open_interest_usd < self._config.min_open_interest_usd:
+                        continue
+                    if volume_24h_usd <= 0:
+                        continue
 
                 # ── Derived metrics ───────────────────────────────────────────
                 # Aster reports the 8h rate directly
