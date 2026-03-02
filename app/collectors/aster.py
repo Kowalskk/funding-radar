@@ -90,6 +90,9 @@ class AsterCollector(BaseCollector):
         # Active symbols fetched from /exchangeInfo
         self._active_symbols: set[str] = set()
 
+        # Per-symbol funding interval (hours); defaults to 8 if not loaded
+        self._funding_intervals: dict[str, int] = {}
+
         # Rate-limit weight tracking
         self._current_weight: int = 0
         self._weight_window_start: float = time.monotonic()
@@ -149,6 +152,22 @@ class AsterCollector(BaseCollector):
             )
         except Exception as exc:
             self._log.warning("Failed to pre-load premiumIndex: %s", exc)
+
+        # Load per-symbol funding interval from /fapi/v1/fundingInfo
+        try:
+            funding_info = await self._fetch_rest(
+                f"{REST_BASE}/fapi/v1/fundingInfo", method="GET"
+            )
+            for item in funding_info:
+                sym = item.get("symbol", "")
+                interval = item.get("fundingIntervalHours", 8)
+                if sym:
+                    self._funding_intervals[sym] = int(interval)
+            self._log.info(
+                "Loaded funding intervals for %d symbols.", len(self._funding_intervals)
+            )
+        except Exception as exc:
+            self._log.warning("Failed to load fundingInfo: %s", exc)
 
     async def _load_exchange_info(self) -> None:
         """Fetch active perpetual symbols from /fapi/v1/exchangeInfo."""
@@ -368,11 +387,13 @@ class AsterCollector(BaseCollector):
                         continue
 
                 # ── Derived metrics ───────────────────────────────────────────
+                # Use per-symbol funding interval if available; fall back to 8h
+                symbol_interval = self._funding_intervals.get(symbol, FUNDING_INTERVAL_HOURS)
                 # Aster reports the 8h rate directly
                 funding_rate_8h = funding_rate
                 funding_apr = self._compute_funding_apr(
-                    funding_rate, FUNDING_INTERVAL_HOURS
-                )  # rate * (24/8) * 365 * 100 = rate * 3 * 365 * 100
+                    funding_rate, symbol_interval
+                )  # rate * (24/interval) * 365 * 100
 
                 price_spread_pct = (
                     ((mark_price - index_price) / index_price * 100)
@@ -388,7 +409,7 @@ class AsterCollector(BaseCollector):
                         funding_rate=funding_rate,
                         funding_rate_8h=funding_rate_8h,
                         funding_apr=funding_apr,
-                        funding_interval_hours=FUNDING_INTERVAL_HOURS,
+                        funding_interval_hours=symbol_interval,
                         next_funding_time=(
                             int(next_funding_time) if next_funding_time else None
                         ),
