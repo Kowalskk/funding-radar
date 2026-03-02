@@ -131,7 +131,77 @@ class HyperliquidCollector(BaseCollector):
                     "History fetch failed for %s: %s", asset_name, exc
                 )
 
-    # ── WebSocket: real-time mid prices ───────────────────────────────────────
+    async def _fetch_history_range(self, start_ms: int, end_ms: int):
+        """Yield historical NormalizedFundingData from Hyperliquid's fundingHistory API.
+
+        Chunks the range into 7-day windows so individual responses stay small.
+        mark_price/OI are 0.0 for historical records — only the rate is available.
+        """
+        if not self._asset_meta:
+            try:
+                raw = await self._fetch_rest(
+                    REST_URL, method="POST", payload={"type": "metaAndAssetCtxs"}
+                )
+                self._normalize(raw)  # populates _asset_meta as a side-effect
+            except Exception as exc:
+                self._log.warning("Could not warm asset meta for backfill: %s", exc)
+                return
+
+        CHUNK_MS = 7 * 24 * 3_600_000  # 7 days
+        now_ms = self._now_ms()
+
+        for asset_name in list(self._asset_meta.keys()):
+            chunk_start = start_ms
+            while chunk_start < min(end_ms, now_ms):
+                chunk_end = min(chunk_start + CHUNK_MS, end_ms, now_ms)
+                try:
+                    raw = await self._fetch_rest(
+                        REST_URL,
+                        method="POST",
+                        payload={
+                            "type": "fundingHistory",
+                            "coin": asset_name,
+                            "startTime": chunk_start,
+                            "endTime": chunk_end,
+                        },
+                    )
+                    for rec in (raw or []):
+                        try:
+                            rate = float(rec.get("fundingRate") or 0)
+                            ts = int(rec.get("time") or 0)
+                            if not ts:
+                                continue
+                            yield NormalizedFundingData(
+                                exchange=self.exchange_slug,
+                                token=asset_name,
+                                symbol=asset_name,
+                                funding_rate=rate,
+                                funding_rate_8h=self._compute_8h_rate(rate, FUNDING_INTERVAL_HOURS),
+                                funding_apr=self._compute_funding_apr(rate, FUNDING_INTERVAL_HOURS),
+                                funding_interval_hours=FUNDING_INTERVAL_HOURS,
+                                next_funding_time=None,
+                                predicted_rate=None,
+                                mark_price=0.0,
+                                index_price=0.0,
+                                open_interest_usd=0.0,
+                                volume_24h_usd=0.0,
+                                price_spread_pct=0.0,
+                                maker_fee=MAKER_FEE,
+                                taker_fee=TAKER_FEE,
+                                timestamp=ts,
+                                is_live=False,
+                            )
+                        except (TypeError, ValueError):
+                            continue
+                    await asyncio.sleep(0.05)  # ~20 req/s
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    self._log.warning(
+                        "History range fetch error for %s: %s", asset_name, exc
+                    )
+                chunk_start = chunk_end + 1
+
 
     async def _run_ws(self) -> None:
         """Connect to Hyperliquid WebSocket and stream mid-price updates."""

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from redis.asyncio import Redis
 
 from app.api.deps import get_current_user_tier, get_redis_client, rate_limit
+from app.processors.apr_windows import APRWindowHelper
 
 router = APIRouter(prefix="/arbitrage", tags=["Arbitrage"])
 
@@ -31,6 +32,7 @@ async def get_opportunities(
     # Pagination
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    include_windows: bool = Query(False, description="Include 1h/8h/24h/7d/30d APR windows"),
     # Auth
     _rl: None = Depends(rate_limit),
     tier: str = Depends(get_current_user_tier),
@@ -95,6 +97,16 @@ async def get_opportunities(
 
     total = len(opportunities)
     page = opportunities[offset : offset + limit]
+
+    if include_windows and page:
+        helper = APRWindowHelper(redis)
+        for opp in page:
+            long_ex = opp.get("long_leg", {}).get("exchange")
+            short_ex = opp.get("short_leg", {}).get("exchange")
+            token_sym = opp.get("token")
+            if long_ex and short_ex and token_sym:
+                pair_windows = await helper.get_pair_windows(long_ex, short_ex, token_sym)
+                opp["apr_windows"] = pair_windows
 
     response: dict = {
         "data": page,

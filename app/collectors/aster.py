@@ -441,8 +441,79 @@ class AsterCollector(BaseCollector):
             len(self._ws_snapshots),
         )
         return results
+    async def _fetch_history_range(self, start_ms: int, end_ms: int):
+        """Yield historical NormalizedFundingData from Aster's /fundingRate endpoint.
+
+        Fetches up to 1000 records per call, paging until end_ms is covered.
+        Uses per-symbol funding intervals loaded during startup.
+        """
+        if not self._active_symbols:
+            await self._load_exchange_info()
+
+        PAGE_SIZE = 1000
+        now_ms = self._now_ms()
+
+        for symbol in list(self._active_symbols):
+            token = self._strip_quote(symbol)
+            interval = self._funding_intervals.get(symbol, FUNDING_INTERVAL_HOURS)
+            chunk_start = start_ms
+
+            while chunk_start < min(end_ms, now_ms):
+                try:
+                    url = (
+                        f"{REST_BASE}/fapi/v1/fundingRate"
+                        f"?symbol={symbol}"
+                        f"&startTime={chunk_start}"
+                        f"&endTime={min(end_ms, now_ms)}"
+                        f"&limit={PAGE_SIZE}"
+                    )
+                    raw = await self._fetch_rest(url, method="GET")
+                    if not raw:
+                        break
+
+                    for rec in raw:
+                        try:
+                            rate = float(rec.get("fundingRate") or 0)
+                            ts = int(rec.get("fundingTime") or 0)
+                            if not ts:
+                                continue
+                            yield NormalizedFundingData(
+                                exchange=self.exchange_slug,
+                                token=token,
+                                symbol=symbol,
+                                funding_rate=rate,
+                                funding_rate_8h=rate,
+                                funding_apr=self._compute_funding_apr(rate, interval),
+                                funding_interval_hours=interval,
+                                next_funding_time=None,
+                                predicted_rate=None,
+                                mark_price=0.0,
+                                index_price=0.0,
+                                open_interest_usd=0.0,
+                                volume_24h_usd=0.0,
+                                price_spread_pct=0.0,
+                                maker_fee=MAKER_FEE,
+                                taker_fee=TAKER_FEE,
+                                timestamp=ts,
+                                is_live=False,
+                            )
+                        except (TypeError, ValueError):
+                            continue
+
+                    last_ts = int(raw[-1].get("fundingTime") or 0)
+                    if len(raw) < PAGE_SIZE or last_ts <= chunk_start:
+                        break   # no more pages
+                    chunk_start = last_ts + 1
+                    await asyncio.sleep(0.05)   # ~20 req/s
+
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    self._log.warning("Aster history range error for %s: %s", symbol, exc)
+                    break
 
     # ── HTTP override — track X-MBX-USED-WEIGHT ───────────────────────────────
+
 
     async def _fetch_rest(
         self,

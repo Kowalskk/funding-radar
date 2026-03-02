@@ -21,6 +21,7 @@ from app.core.database import get_db_session
 from app.models.db.exchange import Exchange
 from app.models.db.funding_rate import FundingRate
 from app.models.db.token import Token
+from app.processors.apr_windows import APRWindowHelper
 
 router = APIRouter(prefix="/funding", tags=["Funding Rates"])
 
@@ -63,6 +64,7 @@ async def get_funding_rates(
     # Pagination
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    include_windows: bool = Query(False, description="Include 1h/8h/24h/7d/30d APR windows"),
     # Auth / rate limit
     _rl: None = Depends(rate_limit),
     tier: str = Depends(get_current_user_tier),
@@ -77,7 +79,7 @@ async def get_funding_rates(
     _timeframe_to_delta(timeframe)  # validate early
 
     if timeframe == "live":
-        return await _live_rates(redis, exchanges, token, limit, offset)
+        return await _live_rates(redis, exchanges, token, limit, offset, include_windows)
     else:
         return await _historical_rates(timeframe, exchanges, token, limit, offset)
 
@@ -88,6 +90,7 @@ async def _live_rates(
     token: str | None,
     limit: int,
     offset: int,
+    include_windows: bool = False,
 ) -> dict:
     raw = await redis.get("funding:ranked")
     if not raw:
@@ -108,6 +111,14 @@ async def _live_rates(
 
     total = len(ranked)
     page = ranked[offset : offset + limit]
+
+    if include_windows and page:
+        helper = APRWindowHelper(redis)
+        for t in page:
+            for row in t["rows"]:
+                windows = await helper.get_windows(row["exchange"], t["token"])
+                row["apr_windows"] = windows
+
     return {
         "data": page,
         "total": total,

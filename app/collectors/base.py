@@ -383,6 +383,29 @@ class BaseCollector(ABC):
         Override in subclass to implement. Default: no-op.
         """
 
+    async def _fetch_history_range(
+        self,
+        start_ms: int,
+        end_ms: int,
+    ):  # AsyncIterator[NormalizedFundingData]
+        """Yield historical NormalizedFundingData records for the given time range.
+
+        Called by BackfillService to back-populate funding_rates in TimescaleDB.
+        Override in each exchange subclass to implement.
+
+        Args:
+            start_ms: Start of the range, unix timestamp in milliseconds (inclusive).
+            end_ms:   End of the range, unix timestamp in milliseconds (inclusive).
+
+        Yields:
+            NormalizedFundingData — one record per funding settlement per token.
+
+        Default: no-op generator (exchange has no public history API).
+        """
+        # By default, yield nothing — override in subclass if exchange has history API.
+        return
+        yield  # make this a generator without yielding anything
+
     # ── Utility helpers ───────────────────────────────────────────────────────
 
     @staticmethod
