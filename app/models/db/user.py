@@ -48,7 +48,8 @@ class User(Base):
 
     # Subscription tier
     tier: Mapped[UserTier] = mapped_column(
-        Enum(UserTier, name="user_tier_enum", create_type=True),
+        Enum(UserTier, name="user_tier_enum", create_type=True,
+             values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=UserTier.FREE,
         server_default=UserTier.FREE.value,

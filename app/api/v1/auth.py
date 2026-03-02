@@ -32,7 +32,7 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str = Field(..., min_length=8, max_length=128)
+    password: str = Field(..., min_length=8, max_length=72)
 
 
 class LoginRequest(BaseModel):
@@ -82,9 +82,17 @@ async def register(
                 detail="An account with this email already exists.",
             )
 
+        try:
+            hashed = hash_password(body.password)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+
         user = User(
             email=body.email,
-            hashed_password=hash_password(body.password),
+            hashed_password=hashed,
             api_key=generate_api_key(),
         )
         session.add(user)
@@ -96,6 +104,7 @@ async def register(
         refresh_token=create_refresh_token(user.id),
         tier=user.tier.value,
     )
+
 
 
 # ── POST /auth/login ──────────────────────────────────────────────────────────

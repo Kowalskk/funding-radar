@@ -11,22 +11,29 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import bcrypt
 from jose import ExpiredSignatureError, JWTError, jwt
-from passlib.context import CryptContext
 
 from app.config import get_settings
-
-_pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # ── Password ──────────────────────────────────────────────────────────────────
 
 def hash_password(plain: str) -> str:
-    return _pwd_ctx.hash(plain)
+    """Hash a password using bcrypt. Raises ValueError if >72 bytes (bcrypt limit)."""
+    encoded = plain.encode("utf-8")
+    if len(encoded) > 72:
+        raise ValueError("Password is too long. Must be at most 72 bytes in UTF-8.")
+    return bcrypt.hashpw(encoded, bcrypt.gensalt(rounds=12)).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return _pwd_ctx.verify(plain, hashed)
+    """Verify a plain password against a bcrypt hash."""
+    try:
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    except Exception:
+        return False
+
 
 
 # ── API key ───────────────────────────────────────────────────────────────────

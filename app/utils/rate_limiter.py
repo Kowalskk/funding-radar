@@ -44,10 +44,10 @@ class _BucketConfig(NamedTuple):
     refill_per_sec: float  # tokens added per second
 
 _TIER_CONFIG: dict[str, _BucketConfig] = {
-    "anonymous": _BucketConfig(capacity=5,   refill_per_sec=5 / 60),
-    "free":      _BucketConfig(capacity=10,  refill_per_sec=60 / 60),
-    "pro":       _BucketConfig(capacity=100, refill_per_sec=600 / 60),
-    "custom":    _BucketConfig(capacity=500, refill_per_sec=6000 / 60),
+    "anonymous": _BucketConfig(capacity=60,  refill_per_sec=120 / 60),
+    "free":      _BucketConfig(capacity=50,  refill_per_sec=300 / 60),
+    "pro":       _BucketConfig(capacity=200, refill_per_sec=1200 / 60),
+    "custom":    _BucketConfig(capacity=1000, refill_per_sec=12000 / 60),
 }
 
 _TTL_SECONDS = 120  # expire idle bucket keys after 2 minutes

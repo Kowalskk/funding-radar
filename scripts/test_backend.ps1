@@ -121,10 +121,12 @@ if ($arbResp -and $arbResp.total -gt 0) {
     Warn "Arbitrage: 0 opportunities"
 }
 
+Start-Sleep -Milliseconds 2000
 # === FASE 6: EXCHANGES API ===
 Info "FASE 6: EXCHANGES API"
 Check-Get "$BASE/api/v1/exchanges" "GET /exchanges"
 
+Start-Sleep -Milliseconds 2000
 # === FASE 7: SIMULATOR API ===
 Info "FASE 7: SIMULATOR API"
 
@@ -209,24 +211,27 @@ if ($jwtToken) {
         Fail "POST /auth/api-key (HTTP $code)"
     }
 }
+Start-Sleep -Milliseconds 2000
 
-# === FASE 9: DATABASE CHECK ===
+# === FASE 9: DATABASE PERSISTENCE CHECK ===
 Info "FASE 9: DATABASE PERSISTENCE CHECK"
 
-$exCount = docker compose exec -T postgres psql -U funding_user -d funding_radar -t -c "SELECT COUNT(*) FROM exchanges;" 2>$null
-$exCount = if ($exCount) { $exCount.Trim() } else { "0" }
+$exRaw = docker compose exec -T postgres psql -U funding_user -d funding_radar -t -c "SELECT COUNT(*) FROM exchanges;" 2>$null
+$exCount = if ($exRaw) { ($exRaw | Out-String) -replace '[^0-9]', '' } else { "" }
+$exCount = if ($exCount -match '^\d+$') { [int]$exCount } else { -1 }
 try {
-    if ([int]$exCount -ge 2) {
+    if ($exCount -ge 2) {
         Pass "DB has $exCount exchanges seeded"
     } else {
         Fail "DB has $exCount exchanges (expected >= 2)"
     }
 } catch { Fail "Could not query exchanges count" }
 
-$tokCount = docker compose exec -T postgres psql -U funding_user -d funding_radar -t -c "SELECT COUNT(*) FROM tokens;" 2>$null
-$tokCount = if ($tokCount) { $tokCount.Trim() } else { "0" }
+$tokRaw = docker compose exec -T postgres psql -U funding_user -d funding_radar -t -c "SELECT COUNT(*) FROM tokens;" 2>$null
+$tokCount = if ($tokRaw) { ($tokRaw | Out-String) -replace '[^0-9]', '' } else { "" }
+$tokCount = if ($tokCount -match '^\d+$') { [int]$tokCount } else { -1 }
 try {
-    if ([int]$tokCount -ge 10) {
+    if ($tokCount -ge 10) {
         Pass "DB has $tokCount tokens seeded"
     } else {
         Fail "DB has $tokCount tokens (expected >= 10)"
