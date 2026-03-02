@@ -27,10 +27,10 @@ from app.utils.rate_limiter import TokenBucket
 _token_bucket: TokenBucket | None = None
 
 
-def get_token_bucket() -> TokenBucket:
+def get_token_bucket(redis: Redis = Depends(get_redis)) -> TokenBucket:
     global _token_bucket
     if _token_bucket is None:
-        _token_bucket = TokenBucket(get_redis())
+        _token_bucket = TokenBucket(redis)
     return _token_bucket
 
 

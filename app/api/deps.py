@@ -112,10 +112,11 @@ class RateLimiter:
         self,
         request: Request,
         tier: str = Depends(get_current_user_tier),
+        redis: Redis = Depends(get_redis_client),
     ) -> None:
         from app.dependencies import get_token_bucket
 
-        bucket = get_token_bucket()
+        bucket = get_token_bucket(redis)
         client_ip = request.client.host if request.client else "unknown"
         identifier = f"ip:{client_ip}:{tier}"
 
