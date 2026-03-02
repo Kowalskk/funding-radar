@@ -353,6 +353,127 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("⚠️ Could not fetch status. Try again later.")
 
 
+async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/top — show top 10 arbitrage opportunities with trends."""
+    try:
+        from app.processors.apr_windows import APRWindowHelper
+        redis = get_redis()
+        helper = APRWindowHelper(redis)
+        
+        raw_arb = await redis.get("arbitrage:current")
+        arb: list[dict] = json.loads(raw_arb) if raw_arb else []
+
+        if not arb:
+            await update.message.reply_text("📉 No arbitrage opportunities found currently.")
+            return
+
+        top_n = arb[:10]
+        # Fetch windows for all top 10 in parallel
+        window_tasks = []
+        for opp in top_n:
+            token = opp["token"]
+            lex = opp["long_leg"]["exchange"]
+            sex = opp["short_leg"]["exchange"]
+            window_tasks.append(helper.get_pair_windows(lex, sex, token))
+        
+        windows_list = await asyncio.gather(*window_tasks)
+
+        lines = ["🚀 <b>Top 10 Arbitrage Opportunities</b> 🚀\n"]
+        for i, (opp, win) in enumerate(zip(top_n, windows_list), 1):
+            token = opp.get("token")
+            apr = opp.get("net_apr_taker", 0)
+            
+            # Trend indicators
+            apr_1h = win.get("net_apr_1h")
+            apr_24h = win.get("net_apr_24h")
+            
+            trend_str = ""
+            if apr_1h is not None and apr_24h is not None:
+                emoji = "📈" if apr_1h > apr_24h else "📉"
+                trend_str = f" | {emoji} <code>1h: {apr_1h:+.1f}%</code> <code>24h: {apr_24h:+.1f}%</code>"
+
+            long_ex = opp.get("long_leg", {}).get("exchange", "?")
+            short_ex = opp.get("short_leg", {}).get("exchange", "?")
+            
+            def ex_link(ex, t):
+                if ex.lower() == "hyperliquid": return f'<a href="https://app.hyperliquid.xyz/trade/{t}">Hyperliquid</a>'
+                if ex.lower() == "aster": return f'<a href="https://app.asterdex.com/trade/{t}">Aster</a>'
+                return ex.title()
+
+            lex_str = ex_link(long_ex, token)
+            sex_str = ex_link(short_ex, token)
+            
+            lines.append(f"{i}. <b>{token}</b>: <code>{apr:.2f}%</code>{trend_str}")
+            lines.append(f"   {lex_str} (L) / {sex_str} (S)")
+            
+        lines.append("\n💡 Use /detail TOKEN for a deep dive.")
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    except Exception as exc:
+        logger.error("cmd_top error: %s", exc, exc_info=True)
+        await update.message.reply_text("⚠️ Could not fetch top opportunities. Try again later.")
+
+
+async def cmd_detail(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/detail {TOKEN} — show multi-timeframe breakdown for a token."""
+    args = context.args or []
+    if not args:
+        await update.message.reply_text("Usage: `/detail TOKEN` (e.g. `/detail BTC`)")
+        return
+
+    token = args[0].upper()
+    try:
+        from app.processors.apr_windows import APRWindowHelper
+        redis = get_redis()
+        helper = APRWindowHelper(redis)
+
+        # Get current arb to find the exchanges
+        raw_arb = await redis.get("arbitrage:current")
+        arb: list[dict] = json.loads(raw_arb) if raw_arb else []
+        opp = next((o for o in arb if o["token"] == token), None)
+
+        if not opp:
+            await update.message.reply_text(f"❌ No active arbitrage found for {token}.")
+            return
+
+        lex = opp["long_leg"]["exchange"]
+        sex = opp["short_leg"]["exchange"]
+        
+        win = await helper.get_pair_windows(lex, sex, token)
+        
+        def ex_link(ex, t):
+            if ex.lower() == "hyperliquid": return f'<a href="https://app.hyperliquid.xyz/trade/{t}">Hyperliquid</a>'
+            if ex.lower() == "aster": return f'<a href="https://app.asterdex.com/trade/{t}">Aster</a>'
+            return ex.title()
+
+        lex_str = ex_link(lex, token)
+        sex_str = ex_link(sex, token)
+        
+        lines = [
+            f"📊 <b>Detail: {token}</b>",
+            f"{lex_str} (Long) vs {sex_str} (Short)\n",
+        ]
+        
+        windows = [
+            ("1 Hour", "net_apr_1h"),
+            ("8 Hours", "net_apr_8h"),
+            ("24 Hours", "net_apr_24h"),
+            ("7 Days", "net_apr_7d"),
+            ("30 Days", "net_apr_30d"),
+        ]
+        
+        for label, key in windows:
+            val = win.get(key)
+            val_str = f"<code>{val:+.2f}%</code>" if val is not None else "<code>N/A</code>"
+            lines.append(f"• {label}: {val_str}")
+            
+        lines.append(f"\n⚡ Live Net APR: <code>{opp['net_apr_taker']:.2f}%</code>")
+        
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    except Exception as exc:
+        logger.error("cmd_detail error: %s", exc, exc_info=True)
+        await update.message.reply_text(f"⚠️ Could not fetch details for {token}.")
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Telegram bot error: %s", context.error, exc_info=context.error)
 
@@ -369,6 +490,8 @@ def build_bot_application(bot_token: str) -> Application:
     app.add_handler(CommandHandler("setalert", cmd_setalert))
     app.add_handler(CommandHandler("removealert", cmd_removealert))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("top", cmd_top))
+    app.add_handler(CommandHandler("detail", cmd_detail))
     app.add_error_handler(error_handler)
 
     return app

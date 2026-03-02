@@ -454,7 +454,7 @@ class AsterCollector(BaseCollector):
         now_ms = self._now_ms()
 
         for symbol in list(self._active_symbols):
-            token = self._strip_quote(symbol)
+            token = _strip_quote(symbol)
             interval = self._funding_intervals.get(symbol, FUNDING_INTERVAL_HOURS)
             chunk_start = start_ms
 

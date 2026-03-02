@@ -236,9 +236,43 @@ class FundingService:
                 exchange_id = exchanges.get(data.exchange)
                 token_id = tokens.get(data.token)
 
-                if exchange_id is None or token_id is None:
-                    # Exchange or token not yet in DB — skip silently
-                    continue
+                # Auto-create exchange if missing
+                if exchange_id is None:
+                    ex_obj = Exchange(
+                        slug=data.exchange,
+                        name=data.exchange.capitalize(),
+                        is_active=True
+                    )
+                    session.add(ex_obj)
+                    await session.flush()  # get ID without commit
+                    exchange_id = ex_obj.id
+                    exchanges[data.exchange] = exchange_id
+                    logger.info("Auto-created exchange: %s", data.exchange)
+
+                # Auto-create token if missing
+                if token_id is None:
+                    tk_obj = Token(
+                        symbol=data.token.upper(),
+                        name=data.token.upper(),
+                        is_active=True
+                    )
+                    session.add(tk_obj)
+                    try:
+                        await session.flush()
+                    except Exception:
+                        await session.rollback()
+                        # handle race condition
+                        tk_row = (await session.execute(
+                            select(Token).where(Token.symbol == data.token.upper())
+                        )).scalar_one_or_none()
+                        if tk_row:
+                            token_id = tk_row.id
+                        else:
+                            continue
+                    else:
+                        token_id = tk_obj.id
+                    tokens[data.token] = token_id
+                    logger.info("Auto-created token: %s", data.token)
 
                 ts = datetime.fromtimestamp(data.timestamp / 1000, tz=timezone.utc)
                 record = FundingRate(
@@ -254,9 +288,10 @@ class FundingService:
                     volume_24h_usd=Decimal(str(data.volume_24h_usd)),
                     price_spread_pct=Decimal(str(data.price_spread_pct)),
                 )
-                # merge avoids duplicate PK errors on re-insert of same timestamp
                 await session.merge(record)
                 inserted += 1
+
+            await session.commit()
 
         logger.info("Persisted %d/%d funding snapshots to DB.", inserted, len(snapshots))
 

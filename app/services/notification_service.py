@@ -41,7 +41,7 @@ _RULE_CACHE_KEY = "notif:rules_cache"
 
 # ── Telegram message formatter ────────────────────────────────────────────────
 
-def _format_alert(token: str, opp: dict) -> str:
+def _format_alert(token: str, opp: dict, win: dict = None) -> str:
     """Build the Telegram markdown message for one arbitrage opportunity."""
     long_leg: dict = opp.get("long_leg", {})
     short_leg: dict = opp.get("short_leg", {})
@@ -53,13 +53,26 @@ def _format_alert(token: str, opp: dict) -> str:
     min_oi = min(long_oi, short_oi)
     ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    trend_section = ""
+    if win:
+        apr_1h = win.get("net_apr_1h")
+        apr_24h = win.get("net_apr_24h")
+        if apr_1h is not None and apr_24h is not None:
+            status = "🔥 *Spiking*" if apr_1h > apr_24h * 1.2 else "✅ *Stable*"
+            trend_section = (
+                f"📊 *Trend*: {status}\n"
+                f"• 1h Avg: `{apr_1h:.2f}%` ⚡\n"
+                f"• 24h Avg: `{apr_24h:.2f}%` 🕒\n\n"
+            )
+
     return (
         f"🔔 *Arbitrage Alert: {token}*\n"
         f"\n"
-        f"📈 APR: `{net_apr:.2f}%`\n"
+        f"📈 *Live APR*: `{net_apr:.2f}%` (Net)\n"
         f"\n"
-        f"Long:  `{long_leg.get('exchange', '?')}` (funding: `{long_leg.get('funding_apr', 0):.2f}%`)\n"
-        f"Short: `{short_leg.get('exchange', '?')}` (funding: `{short_leg.get('funding_apr', 0):.2f}%`)\n"
+        f"{trend_section}"
+        f"📍 Long:  `{long_leg.get('exchange', '?').title()}`\n"
+        f"📍 Short: `{short_leg.get('exchange', '?').title()}`\n"
         f"\n"
         f"💰 Spread: `{price_spread:.3f}%`\n"
         f"📊 Min OI: `${min_oi:,.0f}`\n"
@@ -237,6 +250,9 @@ class NotificationService:
     async def _process_rules(
         self, rules: list[dict], opportunities: list[dict]
     ) -> None:
+        from app.processors.apr_windows import APRWindowHelper
+        helper = APRWindowHelper(self.redis)
+
         # Build token → opportunity index for O(1) lookup
         opp_by_token: dict[str, dict] = {
             o.get("token", ""): o for o in opportunities
@@ -262,12 +278,12 @@ class NotificationService:
                 if not involved.intersection({e.lower() for e in rule["exchanges"]}):
                     continue
 
-            tasks.append(self._maybe_alert(rule, token, opp))
+            tasks.append(self._maybe_alert(rule, token, opp, helper))
 
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _maybe_alert(self, rule: dict, token: str, opp: dict) -> None:
+    async def _maybe_alert(self, rule: dict, token: str, opp: dict, helper: APRWindowHelper) -> None:
         """Send an alert if the throttle window has not fired yet."""
         throttle_key = f"notif:throttle:{rule['user_id']}:{token}"
 
@@ -276,7 +292,14 @@ class NotificationService:
         if not acquired:
             return  # already notified within throttle window
 
-        msg = _format_alert(token, opp)
+        # Fetch windows for trend analysis
+        win = await helper.get_pair_windows(
+            opp["long_leg"]["exchange"],
+            opp["short_leg"]["exchange"],
+            token
+        )
+
+        msg = _format_alert(token, opp, win)
         sent = await self._sender.send(rule["chat_id"], msg)
         if sent:
             logger.info(
