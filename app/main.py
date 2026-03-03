@@ -29,7 +29,7 @@ from app.core.scheduler import (
     init_scheduler,
     shutdown_scheduler,
 )
-from app.collectors import AsterCollector, CollectorConfig, CollectorRegistry, HyperliquidCollector
+from app.collectors import AsterCollector, CollectorConfig, CollectorRegistry, HyperliquidCollector, ExtendedCollector, PacificaCollector
 from app.services import FundingService
 from app.services.notification_service import NotificationService, TelegramSender
 from app.bot.telegram_bot import TelegramBotRunner
@@ -164,6 +164,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         _collector_registry.register("hyperliquid", HyperliquidCollector)
         _collector_registry.register("aster", AsterCollector)
+        _collector_registry.register("extended", ExtendedCollector)
+        _collector_registry.register("pacifica", PacificaCollector)
         await _collector_registry.start_all()
 
         # ── Funding service ───────────────────────────────

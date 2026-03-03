@@ -3,6 +3,8 @@
 from app.collectors.base import BaseCollector, CollectorConfig, NormalizedFundingData
 from app.collectors.aster import AsterCollector
 from app.collectors.hyperliquid import HyperliquidCollector
+from app.collectors.extended import ExtendedCollector
+from app.collectors.pacifica import PacificaCollector
 from app.collectors.registry import CollectorRegistry
 
 __all__ = [
@@ -11,5 +13,7 @@ __all__ = [
     "BaseCollector",
     "AsterCollector",
     "HyperliquidCollector",
+    "ExtendedCollector",
+    "PacificaCollector",
     "CollectorRegistry",
 ]

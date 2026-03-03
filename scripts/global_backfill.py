@@ -16,8 +16,8 @@ sys.path.append(os.getcwd())
 from app.config import get_settings
 from app.core.database import init_db, close_db
 from app.core.redis import init_redis, get_redis, close_redis
-from app.collectors.hyperliquid import HyperliquidCollector
-from app.collectors.aster import AsterCollector
+from app.collectors.extended import ExtendedCollector
+from app.collectors.pacifica import PacificaCollector
 from app.services.backfill_service import BackfillService
 
 logging.basicConfig(
@@ -35,21 +35,21 @@ async def main():
     await init_redis(settings)
     
     redis = get_redis()
-    backfill_service = BackfillService(redis)
-    
-    # Initialize collectors
-    # Note: We pass None for config to use defaults
     hl_collector = HyperliquidCollector(redis)
     aster_collector = AsterCollector(redis)
+    extended_collector = ExtendedCollector(redis)
+    pacifica_collector = PacificaCollector(redis)
     
     # We need to manually start/initialize them so they load their asset universes
     # Hyperliquid loads meta on first history call, but Aster needs start()
     logger.info("Initializing collectors...")
     await aster_collector.start()
+    await extended_collector.start()
+    await pacifica_collector.start()
     # Hyperliquid doesn't need a full start (which starts loops), 
     # just the session for REST calls which collector._fetch_history_range handles.
     
-    collectors = [hl_collector, aster_collector]
+    collectors = [hl_collector, aster_collector, extended_collector, pacifica_collector]
     
     logger.info("Starting global 30-day backfill for all collectors...")
     # We use run_all which handles concurrency and 23h guards
@@ -60,6 +60,8 @@ async def main():
     logger.info("Global backfill finished. Cleaning up...")
     
     await aster_collector.stop()
+    await extended_collector.stop()
+    await pacifica_collector.stop()
     # hl doesn't have background tasks yet as we didn't call start()
     
     await close_redis()

@@ -409,7 +409,10 @@ async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         lines.append("\n💡 Use /detail TOKEN for a deep dive.")
         await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     except Exception as exc:
-        logger.error("cmd_top error: %s", exc, exc_info=True)
+        if "lines" in locals():
+            logger.error(f"cmd_top error! Payload sent:\n{chr(10).join(lines)}\nException: {exc}", exc_info=True)
+        else:
+            logger.error("cmd_top error before lines were built: %s", exc, exc_info=True)
         await update.message.reply_text("⚠️ Could not fetch top opportunities. Try again later.")
 
 
@@ -470,7 +473,10 @@ async def cmd_detail(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         
         await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     except Exception as exc:
-        logger.error("cmd_detail error: %s", exc, exc_info=True)
+        if "lines" in locals():
+            logger.error(f"cmd_detail error! Payload sent:\n{chr(10).join(lines)}\nException: {exc}", exc_info=True)
+        else:
+            logger.error("cmd_detail error: %s", exc, exc_info=True)
         await update.message.reply_text(f"⚠️ Could not fetch details for {token}.")
 
 
