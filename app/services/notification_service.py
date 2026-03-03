@@ -58,27 +58,36 @@ def _format_alert(token: str, opp: dict, win: dict = None) -> str:
         apr_1h = win.get("net_apr_1h")
         apr_24h = win.get("net_apr_24h")
         if apr_1h is not None and apr_24h is not None:
-            status = "🔥 *Spiking*" if apr_1h > apr_24h * 1.2 else "✅ *Stable*"
+            status = "🔥 <b>Spiking</b>" if apr_1h > apr_24h * 1.2 else "✅ <b>Stable</b>"
             trend_section = (
-                f"📊 *Trend*: {status}\n"
-                f"• 1h Avg: `{apr_1h:.2f}%` ⚡\n"
-                f"• 24h Avg: `{apr_24h:.2f}%` 🕒\n\n"
+                f"📊 <b>Trend</b>: {status}\n"
+                f"• 1h Avg: <code>{apr_1h:+.2f}%</code> ⚡\n"
+                f"• 24h Avg: <code>{apr_24h:+.2f}%</code> 🕒\n\n"
             )
 
+    def ex_link(ex, t):
+        if ex.lower() == "hyperliquid": return f'<a href="https://app.hyperliquid.xyz/trade/{t}">Hyperliquid</a>'
+        if ex.lower() == "aster": return f'<a href="https://app.asterdex.com/trade/{t}">Aster</a>'
+        return ex.title()
+
+    lex_str = ex_link(long_leg.get('exchange', '?'), token)
+    sex_str = ex_link(short_leg.get('exchange', '?'), token)
+
     return (
-        f"🔔 *Arbitrage Alert: {token}*\n"
+        f"🔔 <b>Arbitrage Alert: {token}</b>\n"
         f"\n"
-        f"📈 *Live APR*: `{net_apr:.2f}%` (Net)\n"
+        f"📈 <b>Live APR</b>: <code>{net_apr:.2f}%</code> (Net)\n"
         f"\n"
         f"{trend_section}"
-        f"📍 Long:  `{long_leg.get('exchange', '?').title()}`\n"
-        f"📍 Short: `{short_leg.get('exchange', '?').title()}`\n"
+        f"📍 Long:  {lex_str}\n"
+        f"📍 Short: {sex_str}\n"
         f"\n"
-        f"💰 Spread: `{price_spread:.3f}%`\n"
-        f"📊 Min OI: `${min_oi:,.0f}`\n"
+        f"💰 Spread: <code>{price_spread:.3f}%</code>\n"
+        f"📊 Min OI: <code>${min_oi:,.0f}</code>\n"
         f"\n"
         f"⏰ {ts}"
     )
+
 
 
 # ── Telegram HTTP sender ──────────────────────────────────────────────────────
@@ -115,7 +124,7 @@ class TelegramSender:
                 json={
                     "chat_id": chat_id,
                     "text": text,
-                    "parse_mode": "Markdown",
+                    "parse_mode": "HTML",
                     "disable_web_page_preview": True,
                 },
             ) as resp:
